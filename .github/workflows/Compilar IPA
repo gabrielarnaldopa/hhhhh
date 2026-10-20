@@ -1,0 +1,46 @@
+name: Compilar IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Usar Xcode 26 (necesario para Liquid Glass)
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          test -n "$XC" || { echo "Este runner no tiene Xcode 26"; exit 1; }
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Compilar sin firmar (AltServer la firma con tu Apple ID)
+        run: |
+          rm -rf build
+          xcodebuild -project Liminal.xcodeproj -target Liminal -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Empaquetar Kuolki.ipa
+        run: |
+          rm -rf Payload Kuolki.ipa
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/Liminal.app Payload/
+          APP=Payload/Liminal.app
+          test -d $APP/PlugIns/LiminalWidgets.appex || { echo "Falta LiminalWidgets.appex"; exit 1; }
+          for f in BricolageGrotesque-Regular BricolageGrotesque-Medium BricolageGrotesque-SemiBold \
+                   BricolageGrotesque-Bold BricolageGrotesqueDisplay-SemiBold BricolageGrotesqueDisplay-Bold; do
+            [ -n "$(find $APP -name "$f.ttf" -print -quit)" ] || { echo "Falta la fuente $f.ttf (sube la carpeta Liminal/Fonts)"; exit 1; }
+          done
+          zip -qry Kuolki.ipa Payload
+          echo "Listo: $(du -h Kuolki.ipa | cut -f1) · $(xcodebuild -version | head -1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kuolki-ipa
+          path: Kuolki.ipa
